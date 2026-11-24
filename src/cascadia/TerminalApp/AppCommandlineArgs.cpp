@@ -655,6 +655,12 @@ void AppCommandlineArgs::_addNewTerminalArgs(AppCommandlineArgs::NewTerminalSubc
     // See https://github.com/CLIUtils/CLI11/issues/417 for more info.
     subcommand.commandlineOption = subcommand.subcommand->add_option("command", _commandline, RS_A(L"CmdCommandArgDesc"));
     subcommand.subcommand->positionals_at_end(true);
+
+    // Hidden: used by NewTerminalArgs::ToCommandline() when elevating, so that the commandline
+    // is passed through as-is instead of being split into args and re-joined.
+    subcommand.verbatimCommandlineOption = subcommand.subcommand->add_option("--x-commandline", _verbatimCommandline)
+                                               ->group("")
+                                               ->excludes(subcommand.commandlineOption);
 }
 
 // Method Description:
@@ -667,8 +673,11 @@ NewTerminalArgs AppCommandlineArgs::_getNewTerminalArgs(AppCommandlineArgs::NewT
 {
     NewTerminalArgs args{};
 
-    const auto hasCommandline{ !_commandline.empty() };
-    if (hasCommandline)
+    if (*subcommand.verbatimCommandlineOption)
+    {
+        args.Commandline(winrt::to_hstring(_verbatimCommandline));
+    }
+    else if (!_commandline.empty())
     {
         std::ostringstream cmdlineBuffer;
 
@@ -746,7 +755,9 @@ NewTerminalArgs AppCommandlineArgs::_getNewTerminalArgs(AppCommandlineArgs::NewT
     }
 
     std::optional<bool> inheritEnv;
-    if (hasCommandline)
+    // A commandline typed by the user inherits wt's environment by default. The verbatim
+    // commandline from ToCommandline() comes with explicit environment flags, if any.
+    if (!_commandline.empty())
     {
         inheritEnv = true;
     }
@@ -806,6 +817,7 @@ void AppCommandlineArgs::_resetStateToDefault()
     _startingTitle.clear();
     _startingTabColor.clear();
     _commandline.clear();
+    _verbatimCommandline.clear();
     _suppressApplicationTitle = false;
     _appendCommandLineOption = false;
 

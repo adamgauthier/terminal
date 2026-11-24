@@ -54,7 +54,6 @@
 
 #include <WtExeUtils.h>
 #include <ScopedResourceLoader.h>
-#include <til/replace.h>
 
 namespace winrt
 {
@@ -209,11 +208,21 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
             fmt::format_to(std::back_inserter(str), FMT_COMPILE(L"--colorScheme {} "), QuoteAndEscapeCommandlineArg(ColorScheme()));
         }
 
+        if (AppendCommandLine())
+        {
+            str.append(L"--appendCommandLine ");
+        }
+
+        if (const auto reload = ReloadEnvironmentVariables())
+        {
+            str.append(reload.Value() ? L"--reloadEnvironment " : L"--inheritEnvironment ");
+        }
+
         if (!Commandline().empty())
         {
-            // Escape ';' so wt's commandline parser doesn't split this into separate subcommands.
-            const auto commandline = til::replace_needle_in_haystack(std::wstring_view{ Commandline() }, L";", L"\\;");
-            fmt::format_to(std::back_inserter(str), FMT_COMPILE(L"-- {} "), commandline);
+            // Pass the commandline as a single verbatim value. A trailing `-- {}` would get split
+            // into args and re-joined by the receiving wt, which loses quoting, empty args, etc.
+            fmt::format_to(std::back_inserter(str), FMT_COMPILE(L"--x-commandline={} "), QuoteAndEscapeCommandlineArg(Commandline()));
         }
 
         if (str.empty())

@@ -60,6 +60,7 @@ private:
     {
         CLI::App* subcommand;
         CLI::Option* commandlineOption;
+        CLI::Option* verbatimCommandlineOption;
         CLI::Option* profileNameOption;
         CLI::Option* sessionIdOption;
         CLI::Option* startingDirectoryOption;
@@ -110,6 +111,8 @@ private:
 
     // _commandline will contain the command line with which we'll be spawning a new terminal
     std::vector<std::string> _commandline;
+    // _verbatimCommandline is the same, but passed as a single already-joined string (used when elevating)
+    std::string _verbatimCommandline;
     bool _appendCommandLineOption{ false };
 
     bool _splitVertical{ false };

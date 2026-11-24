@@ -459,6 +459,14 @@ namespace SettingsModelUnitTests
             {
                 "name":"action9_commandlineDelimiterEscaping",
                 "command": { "action": "newWindow", "commandline": "cmd.exe /k \"echo a; echo b\"" }
+            },
+            {
+                "name":"action10_tabTitleEscapedDelimiter",
+                "command": { "action": "newWindow", "tabTitle":"a\\;b" }
+            },
+            {
+                "name":"action11_reloadEnvironment",
+                "command": { "action": "newWindow", "reloadEnvironmentVariables": true, "commandline": "-NoExit" }
             }
         ])" };
 
@@ -468,7 +476,7 @@ namespace SettingsModelUnitTests
         VERIFY_ARE_EQUAL(0u, commands.Size());
         auto warnings = implementation::Command::LayerJson(commands, commands0Json, OriginTag::None);
         VERIFY_ARE_EQUAL(0u, warnings.size());
-        VERIFY_ARE_EQUAL(10u, commands.Size());
+        VERIFY_ARE_EQUAL(12u, commands.Size());
 
         {
             auto command = commands.Lookup(L"action0");
@@ -523,7 +531,7 @@ namespace SettingsModelUnitTests
             const auto& terminalArgs = realArgs.ContentArgs().try_as<NewTerminalArgs>();
             VERIFY_IS_NOT_NULL(terminalArgs);
             auto cmdline = terminalArgs.ToCommandline();
-            VERIFY_ARE_EQUAL(L"-- bar.exe", cmdline);
+            VERIFY_ARE_EQUAL(L"--x-commandline=\"bar.exe\"", cmdline);
         }
 
         {
@@ -539,7 +547,7 @@ namespace SettingsModelUnitTests
             auto cmdline = terminalArgs.ToCommandline();
             Log::Comment(NoThrowString().Format(
                 L"cmdline: \"%s\"", cmdline.c_str()));
-            VERIFY_ARE_EQUAL(L"-- pop.exe ya ha ha", terminalArgs.ToCommandline());
+            VERIFY_ARE_EQUAL(L"--x-commandline=\"pop.exe ya ha ha\"", terminalArgs.ToCommandline());
         }
 
         {
@@ -555,7 +563,7 @@ namespace SettingsModelUnitTests
             auto cmdline = terminalArgs.ToCommandline();
             Log::Comment(NoThrowString().Format(
                 L"cmdline: \"%s\"", cmdline.c_str()));
-            VERIFY_ARE_EQUAL(L"-- pop.exe \"ya ha ha\"", terminalArgs.ToCommandline());
+            VERIFY_ARE_EQUAL(LR"-(--x-commandline="pop.exe \"ya ha ha\"")-", terminalArgs.ToCommandline());
         }
 
         {
@@ -571,7 +579,7 @@ namespace SettingsModelUnitTests
             auto cmdline = terminalArgs.ToCommandline();
             Log::Comment(NoThrowString().Format(
                 L"cmdline: \"%s\"", cmdline.c_str()));
-            VERIFY_ARE_EQUAL(L"--startingDirectory \"C:\\foo\" -- bar.exe", terminalArgs.ToCommandline());
+            VERIFY_ARE_EQUAL(L"--startingDirectory \"C:\\foo\" --x-commandline=\"bar.exe\"", terminalArgs.ToCommandline());
         }
 
         {
@@ -587,7 +595,7 @@ namespace SettingsModelUnitTests
             auto cmdline = terminalArgs.ToCommandline();
             Log::Comment(NoThrowString().Format(
                 L"cmdline: \"%s\"", cmdline.c_str()));
-            VERIFY_ARE_EQUAL(L"--startingDirectory \"C:\\\\\" -- bar.exe", terminalArgs.ToCommandline());
+            VERIFY_ARE_EQUAL(L"--startingDirectory \"C:\\\\\" --x-commandline=\"bar.exe\"", terminalArgs.ToCommandline());
         }
 
         {
@@ -619,7 +627,27 @@ namespace SettingsModelUnitTests
             auto cmdline = terminalArgs.ToCommandline();
             Log::Comment(NoThrowString().Format(
                 L"cmdline: \"%s\"", cmdline.c_str()));
-            VERIFY_ARE_EQUAL(LR"-(-- cmd.exe /k "echo a\; echo b")-", terminalArgs.ToCommandline());
+            VERIFY_ARE_EQUAL(LR"-(--x-commandline="cmd.exe /k \"echo a\; echo b\"")-", terminalArgs.ToCommandline());
+        }
+
+        {
+            auto command = commands.Lookup(L"action10_tabTitleEscapedDelimiter");
+            VERIFY_IS_NOT_NULL(command);
+            const auto& realArgs = command.ActionAndArgs().Args().try_as<NewWindowArgs>();
+            VERIFY_IS_NOT_NULL(realArgs);
+            const auto& terminalArgs = realArgs.ContentArgs().try_as<NewTerminalArgs>();
+            VERIFY_IS_NOT_NULL(terminalArgs);
+            VERIFY_ARE_EQUAL(LR"-(--title "a\\;b")-", terminalArgs.ToCommandline());
+        }
+
+        {
+            auto command = commands.Lookup(L"action11_reloadEnvironment");
+            VERIFY_IS_NOT_NULL(command);
+            const auto& realArgs = command.ActionAndArgs().Args().try_as<NewWindowArgs>();
+            VERIFY_IS_NOT_NULL(realArgs);
+            const auto& terminalArgs = realArgs.ContentArgs().try_as<NewTerminalArgs>();
+            VERIFY_IS_NOT_NULL(terminalArgs);
+            VERIFY_ARE_EQUAL(LR"-(--reloadEnvironment --x-commandline="-NoExit")-", terminalArgs.ToCommandline());
         }
     }
 }

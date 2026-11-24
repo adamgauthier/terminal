@@ -69,6 +69,8 @@ namespace TerminalAppLocalTests
         TEST_METHOD(TestMultipleCommandExecuteCommandlineAction);
         TEST_METHOD(TestInvalidExecuteCommandlineAction);
         TEST_METHOD(TestElevatedCommandlineRoundTrip);
+        TEST_METHOD(TestElevatedAppendCommandLineRoundTrip);
+        TEST_METHOD(TestVerbatimCommandlineOption);
         TEST_METHOD(TestLaunchMode);
         TEST_METHOD(TestLaunchModeWithNoCommand);
 
@@ -1675,25 +1677,97 @@ namespace TerminalAppLocalTests
             LR"(pwsh.exe -NoExit -Command "Write-Host hi")",
             LR"(cmd.exe /k "echo a; echo b")",
             LR"(pwsh.exe -NoExit -Command "echo 'hi; my name is adam'")",
+            LR"(pwsh.exe -NoExit -Command "Write-Host \"hi there\"")",
+            LR"(python.exe -c pass "" b)",
+            LR"(cmd.exe /k "echo a&b")",
+            LR"(cmd.exe /k dir "C:\Program Files\\")",
+            L"python.exe -c pass \"a\tb\"",
+            L"  cmd.exe   /k  echo  ",
+            LR"(cmd.exe /k echo a\;b a\\;b ;x;)",
+            L"-NoExit",
         };
 
-        for (const auto& commandline : commandlines)
+        // elevate-shim drops the leading "new-tab" (it's argv[0] to the shim), so test with and without it.
+        for (const auto prefix : { L"new-tab ", L"" })
+        {
+            for (const auto& commandline : commandlines)
+            {
+                NewTerminalArgs original{};
+                original.Profile(L"{00000000-0000-0000-0000-000000000001}");
+                original.TabTitle(LR"(a\;b)");
+                original.Commandline(winrt::hstring{ commandline });
+
+                const ExecuteCommandlineArgs args{ prefix + original.ToCommandline() };
+                Log::Comment(NoThrowString().Format(L"%s", args.Commandline().c_str()));
+
+                const auto actions = winrt::TerminalApp::implementation::TerminalPage::ConvertExecuteCommandlineToActions(args);
+                VERIFY_ARE_EQUAL(1u, actions.size());
+                const auto myArgs = actions.at(0).Args().try_as<NewTabArgs>();
+                VERIFY_IS_NOT_NULL(myArgs);
+                const auto terminalArgs = myArgs.ContentArgs().try_as<NewTerminalArgs>();
+                VERIFY_IS_NOT_NULL(terminalArgs);
+                VERIFY_ARE_EQUAL(original.Profile(), terminalArgs.Profile());
+                VERIFY_ARE_EQUAL(original.TabTitle(), terminalArgs.TabTitle());
+                VERIFY_ARE_EQUAL(original.Commandline(), terminalArgs.Commandline());
+                VERIFY_IS_FALSE(terminalArgs.AppendCommandLine());
+                VERIFY_IS_NULL(terminalArgs.ReloadEnvironmentVariables());
+            }
+        }
+    }
+
+    void CommandlineTest::TestElevatedAppendCommandLineRoundTrip()
+    {
+        for (const auto reload : { false, true })
         {
             NewTerminalArgs original{};
             original.Profile(L"{00000000-0000-0000-0000-000000000001}");
-            original.Commandline(winrt::hstring{ commandline });
+            original.AppendCommandLine(true);
+            original.ReloadEnvironmentVariables(reload);
+            original.Commandline(L"-NoExit");
 
-            const ExecuteCommandlineArgs args{ L"new-tab " + original.ToCommandline() };
+            const ExecuteCommandlineArgs args{ original.ToCommandline() };
             Log::Comment(NoThrowString().Format(L"%s", args.Commandline().c_str()));
 
             const auto actions = winrt::TerminalApp::implementation::TerminalPage::ConvertExecuteCommandlineToActions(args);
             VERIFY_ARE_EQUAL(1u, actions.size());
-            const auto myArgs = actions.at(0).Args().try_as<NewTabArgs>();
-            VERIFY_IS_NOT_NULL(myArgs);
-            const auto terminalArgs = myArgs.ContentArgs().try_as<NewTerminalArgs>();
+            const auto terminalArgs = actions.at(0).Args().try_as<NewTabArgs>().ContentArgs().try_as<NewTerminalArgs>();
             VERIFY_IS_NOT_NULL(terminalArgs);
-            VERIFY_ARE_EQUAL(original.Profile(), terminalArgs.Profile());
-            VERIFY_ARE_EQUAL(original.Commandline(), terminalArgs.Commandline());
+            VERIFY_ARE_EQUAL(L"-NoExit", terminalArgs.Commandline());
+            VERIFY_IS_TRUE(terminalArgs.AppendCommandLine());
+            VERIFY_IS_NOT_NULL(terminalArgs.ReloadEnvironmentVariables());
+            VERIFY_ARE_EQUAL(reload, terminalArgs.ReloadEnvironmentVariables().Value());
+        }
+    }
+
+    void CommandlineTest::TestVerbatimCommandlineOption()
+    {
+        {
+            Log::Comment(L"The verbatim commandline doesn't leak into following subcommands");
+            AppCommandlineArgs appArgs{};
+            std::vector<const wchar_t*> rawCommands{ L"wt.exe", L"--x-commandline=one two", L";", L"sp", L"--x-commandline=\"three\"", L";", L"nt", L"four" };
+            _buildCommandlinesHelper(appArgs, 3u, rawCommands);
+
+            const auto& actions = appArgs.GetStartupActions();
+            VERIFY_ARE_EQUAL(3u, actions.size());
+            VERIFY_ARE_EQUAL(L"one two", actions.at(0).Args().try_as<NewTabArgs>().ContentArgs().try_as<NewTerminalArgs>().Commandline());
+            VERIFY_ARE_EQUAL(L"\"three\"", actions.at(1).Args().try_as<SplitPaneArgs>().ContentArgs().try_as<NewTerminalArgs>().Commandline());
+            VERIFY_ARE_EQUAL(L"four", actions.at(2).Args().try_as<NewTabArgs>().ContentArgs().try_as<NewTerminalArgs>().Commandline());
+        }
+        {
+            Log::Comment(L"After the commandline has started, --x-commandline is just another arg for it");
+            AppCommandlineArgs appArgs{};
+            std::vector<const wchar_t*> rawCommands{ L"wt.exe", L"nt", L"--", L"child.exe", L"--x-commandline=x" };
+            _buildCommandlinesHelper(appArgs, 1u, rawCommands);
+
+            const auto& actions = appArgs.GetStartupActions();
+            VERIFY_ARE_EQUAL(1u, actions.size());
+            VERIFY_ARE_EQUAL(L"child.exe --x-commandline=x", actions.at(0).Args().try_as<NewTabArgs>().ContentArgs().try_as<NewTerminalArgs>().Commandline());
+        }
+        {
+            Log::Comment(L"--x-commandline can't be combined with a positional commandline");
+            AppCommandlineArgs appArgs{};
+            std::vector<const wchar_t*> rawCommands{ L"wt.exe", L"nt", L"--x-commandline=x", L"child.exe" };
+            _buildCommandlinesExpectFailureHelper(appArgs, 1u, rawCommands);
         }
     }
 

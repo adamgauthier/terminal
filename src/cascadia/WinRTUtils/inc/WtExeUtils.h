@@ -133,9 +133,15 @@ inline void QuoteAndEscapeCommandlineArg(const std::wstring_view& arg, std::wstr
         }
         else
         {
-            if (ch == L';' || ch == L'"')
+            if (ch == L'"')
             {
+                // CommandLineToArgvW halves backslashes preceding a quote.
                 out.append(backslashes + 1, L'\\');
+            }
+            else if (ch == L';')
+            {
+                // wt only strips the single backslash of a "\;" and leaves any preceding backslashes alone.
+                out.push_back(L'\\');
             }
             backslashes = 0;
         }
